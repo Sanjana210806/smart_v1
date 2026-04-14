@@ -4,11 +4,13 @@ services:
     runtime: node
     rootDir: api-server
     plan: free
-    buildCommand: npm install --no-audit --no-fund && npm run build
+    buildCommand: npm install --include=dev --no-audit --no-fund && npm run build
     startCommand: npm run start
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
       - key: PORT
         value: 10000
       - key: CORS_ORIGIN
