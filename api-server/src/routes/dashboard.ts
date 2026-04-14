@@ -1,12 +1,11 @@
 import { Router, type IRouter } from "express";
-import { eq, gte, and } from "drizzle-orm";
-import { db, parkingSlotsTable, parkingSessionsTable } from "@workspace/db";
+import { parkingSessions, parkingSlots } from "../lib/store";
 
 const router: IRouter = Router();
 
 router.get("/dashboard", async (req, res): Promise<void> => {
-  const slots = await db.select().from(parkingSlotsTable);
-  const sessions = await db.select().from(parkingSessionsTable);
+  const slots = parkingSlots;
+  const sessions = parkingSessions;
 
   const totalSlots = slots.length;
   const availableSlots = slots.filter((s) => s.available).length;

@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { useGetDashboard } from "@workspace/api-client-react";
+import { useGetDashboard } from "@/lib/api-client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";

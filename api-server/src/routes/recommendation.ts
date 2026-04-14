@@ -1,7 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, parkingSlotsTable } from "@workspace/db";
-import { RecommendSlotsBody } from "@workspace/api-zod";
+import { parkingSlots } from "../lib/store";
+import { recommendSlotsBodySchema } from "../lib/schemas";
 
 const router: IRouter = Router();
 
@@ -16,7 +15,7 @@ const router: IRouter = Router();
  * Returns TOP 5 matches, near_lift preferred within each group
  */
 router.post("/recommend", async (req, res): Promise<void> => {
-  const parsed = RecommendSlotsBody.safeParse(req.body);
+  const parsed = recommendSlotsBodySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -24,10 +23,7 @@ router.post("/recommend", async (req, res): Promise<void> => {
 
   const { needsEv, needsAccessible, parkingPreference, preferredLevel } = parsed.data;
 
-  const allAvailable = await db
-    .select()
-    .from(parkingSlotsTable)
-    .where(eq(parkingSlotsTable.available, true));
+  const allAvailable = parkingSlots.filter((slot) => slot.available);
 
   // Sort: near_lift first within each group
   const sortByLift = (slots: typeof allAvailable) =>

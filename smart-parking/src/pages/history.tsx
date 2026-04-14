@@ -1,4 +1,4 @@
-import { useGetSessions, getGetSessionsQueryKey } from "@workspace/api-client-react";
+import { useGetSessions, getGetSessionsQueryKey } from "@/lib/api-client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { History } from "lucide-react";

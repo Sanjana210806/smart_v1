@@ -2,31 +2,17 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 const port = Number(process.env.PORT || "5173");
 const isProduction = process.env.NODE_ENV === "production";
-const isReplit = process.env.REPL_ID !== undefined;
+const configuredBasePath = (process.env.VITE_BASE_PATH || "").trim();
+const normalizedBasePath = configuredBasePath
+  ? `/${configuredBasePath.replace(/^\/+|\/+$/g, "")}/`
+  : "/";
 
 export default defineConfig({
-  base: isProduction ? "/smart_v1/" : "/",
-  plugins: [
-    react(),
-    tailwindcss(),
-    runtimeErrorOverlay(),
-    ...(!isProduction && isReplit
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer({
-              root: path.resolve(import.meta.dirname, ".."),
-            }),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
-  ],
+  base: isProduction ? normalizedBasePath : "/",
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

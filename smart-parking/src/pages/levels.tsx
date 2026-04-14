@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useGetSlots, getGetSlotsQueryKey } from "@workspace/api-client-react";
+import { useGetSlots, getGetSlotsQueryKey } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   BatteryCharging,

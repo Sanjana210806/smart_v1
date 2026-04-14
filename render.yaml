@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: smart-parking-api
+    runtime: node
+    rootDir: api-server
+    plan: free
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: CORS_ORIGIN
+        sync: false

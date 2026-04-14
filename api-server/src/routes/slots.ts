@@ -1,18 +1,17 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
-import { db, parkingSlotsTable } from "@workspace/db";
-import { GetSlotsQueryParams } from "@workspace/api-zod";
+import { parkingSlots } from "../lib/store";
+import { getSlotsQuerySchema } from "../lib/schemas";
 
 const router: IRouter = Router();
 
 router.get("/slots", async (req, res): Promise<void> => {
-  const query = GetSlotsQueryParams.safeParse(req.query);
+  const query = getSlotsQuerySchema.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: query.error.message });
     return;
   }
 
-  let slots = await db.select().from(parkingSlotsTable);
+  let slots = [...parkingSlots];
 
   if (query.data.level) {
     slots = slots.filter((s) => s.level === query.data.level);
