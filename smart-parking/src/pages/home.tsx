@@ -1,6 +1,7 @@
 import { Link } from "wouter";
-import { useGetDashboard, useGetSessions, getGetSessionsQueryKey } from "@/lib/api-client";
+import { useGetDashboard, useGetSessions, useGetMyBookings } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { useParkingArea } from "@/lib/parking-area-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +15,9 @@ import {
   ParkingSquare,
   TrendingUp,
   Layers,
+  List,
+  Banknote,
+  UserPlus,
 } from "lucide-react";
 
 function StatCard({
@@ -57,15 +61,17 @@ type SessionRow = { paymentStatus: string; sessionId: number };
 
 export function Home() {
   const { user } = useAuth();
+  const { selectedAreaId, selectedArea } = useParkingArea();
   const isAdmin = user?.role === "admin";
-  const { data: dashboard, isLoading } = useGetDashboard({
-    query: { enabled: isAdmin },
+  const areaReady = Boolean(selectedAreaId);
+
+  const { data: dashboard, isLoading } = useGetDashboard(selectedAreaId, {
+    query: { enabled: isAdmin && areaReady },
   });
 
-  const { data: mySessions, isLoading: loadingMySessions } = useGetSessions(
-    {},
-    { query: { enabled: !isAdmin, queryKey: getGetSessionsQueryKey({}) } },
-  );
+  const { data: mySessions, isLoading: loadingMySessions } = useGetMyBookings({
+    query: { enabled: !isAdmin && Boolean(user) },
+  });
 
   const mine = (mySessions as SessionRow[] | undefined) ?? [];
   const myActive = mine.filter((s) => s.paymentStatus === "pending" || s.paymentStatus === "parked").length;
@@ -77,29 +83,57 @@ export function Home() {
       <div className="flex items-start justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">
-            {isAdmin ? "Operations overview" : "My parking"}
+            {isAdmin ? "Property overview" : "My parking"}
           </h2>
           <p className="text-sm text-slate-500 mt-1">
             {isAdmin
-              ? "Real-time status across all levels (admin)"
-              : "Your bookings only — other drivers cannot see your sessions."}
+              ? `Live occupancy, revenue, and levels for ${selectedArea?.name ?? "this site"}. Use the header to switch mall, metro, or campus — numbers always match the selected site.`
+              : `Book and track parking here. Your session counts include every site; use the header to switch locations.`}
           </p>
         </div>
-        <div className="flex gap-3">
-          <Link
-            href="/book"
-            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2"
-          >
-            <ParkingSquare className="h-4 w-4" />
-            Book Slot
-          </Link>
-          <Link
-            href="/my-car"
-            className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center gap-2"
-          >
-            <Car className="h-4 w-4" />
-            Find My Car
-          </Link>
+        <div className="flex flex-wrap gap-3">
+          {isAdmin ? (
+            <>
+              <Link
+                href="/book"
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2"
+              >
+                <ParkingSquare className="h-4 w-4" />
+                New booking
+              </Link>
+              <Link
+                href="/history"
+                className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center gap-2"
+              >
+                <List className="h-4 w-4" />
+                Live sessions
+              </Link>
+              <Link
+                href="/admin/users"
+                className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center gap-2"
+              >
+                <UserPlus className="h-4 w-4" />
+                Create users
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/book"
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2"
+              >
+                <ParkingSquare className="h-4 w-4" />
+                Book Slot
+              </Link>
+              <Link
+                href="/my-car"
+                className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center gap-2"
+              >
+                <Car className="h-4 w-4" />
+                Find My Car
+              </Link>
+            </>
+          )}
         </div>
       </div>
 
@@ -148,7 +182,7 @@ export function Home() {
       {/* Stat Cards — admin only */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {!isAdmin ? null : isLoading ? (
-          Array.from({ length: 7 }).map((_, i) => (
+          Array.from({ length: 8 }).map((_, i) => (
             <Card key={i} className="border-slate-200 shadow-sm">
               <CardHeader className="pb-2">
                 <Skeleton className="h-4 w-24" />
@@ -161,20 +195,28 @@ export function Home() {
         ) : dashboard ? (
           <>
             <StatCard
-              title="Available Slots"
+              title="Available slots"
               value={dashboard.availableSlots}
-              sub={`of ${dashboard.totalSlots} total`}
+              sub={`of ${dashboard.totalSlots} total · this site`}
               icon={ParkingSquare}
               iconColor="bg-emerald-500"
-              href="/book"
+              href="/levels"
             />
             <StatCard
-              title="Cars Parked Now"
+              title="Active sessions"
               value={dashboard.activeSessions}
-              sub="Vehicles inside campus"
+              sub="Parked now · this site"
               icon={Car}
               iconColor="bg-blue-500"
-              href="/my-car"
+              href="/history"
+            />
+            <StatCard
+              title="Revenue today"
+              value={`₹${Number(dashboard.revenueTodayInr ?? 0).toLocaleString("en-IN")}`}
+              sub="Completed exits today · this site"
+              icon={Banknote}
+              iconColor="bg-green-600"
+              href="/payments"
             />
             <StatCard
               title="EV Charging"
@@ -218,16 +260,25 @@ export function Home() {
             />
           </>
         ) : (
-          <p className="text-sm text-slate-500">No dashboard data available</p>
+          <p className="text-sm text-slate-500">
+            No metrics for this site yet. Choose a parking site in the header, or refresh after the API is running.
+          </p>
         )}
       </div>
 
       {/* Level Breakdown */}
       {isAdmin && dashboard && (
         <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-row items-center gap-2">
-            <Layers className="h-5 w-5 text-slate-500" />
-            <CardTitle className="text-base">Level Breakdown</CardTitle>
+          <CardHeader className="flex flex-row items-start gap-3 pb-2">
+            <Layers className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <CardTitle className="text-base">Levels at this site</CardTitle>
+              {selectedArea?.name ? (
+                <p className="text-xs text-slate-500 mt-1 truncate" title={selectedArea.name}>
+                  {selectedArea.name} — switch header site to compare properties
+                </p>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">

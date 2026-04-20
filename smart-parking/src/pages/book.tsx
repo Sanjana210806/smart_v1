@@ -1,12 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useRecommendSlots,
   useBookSlot,
   useStartParking,
   getGetDashboardQueryKey,
-  getGetSlotsQueryKey,
+  getMyBookingsQueryKey,
+  useGetMyCars,
 } from "@/lib/api-client";
+import { useParkingArea } from "@/lib/parking-area-context";
+import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +39,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 
 type ParkingSlot = {
+  areaId?: string;
   slotId: string;
   level: string;
   slotType: string;
@@ -79,9 +84,26 @@ function SlotTypeBadge({ slotType }: { slotType: string }) {
   );
 }
 
+const LEVEL_LABELS: Record<string, string> = {
+  B1: "Basement 1",
+  B2: "Basement 2",
+  GF: "Ground Floor",
+  L1: "Level 1",
+  L2: "Level 2",
+  P1: "Platform deck 1",
+  P2: "Platform deck 2",
+  P3: "Platform deck 3",
+  G: "Ground",
+};
+
 export function Book() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const { selectedAreaId, selectedArea } = useParkingArea();
+
+  const { data: myCars = [], isLoading: loadingMyCars } = useGetMyCars();
 
   const [carNumber, setCarNumber] = useState("");
   const [needsEv, setNeedsEv] = useState(false);
@@ -96,12 +118,32 @@ export function Book() {
   const [activeBooking, setActiveBooking] = useState<ParkingSession | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<ParkingSlot | null>(null);
 
-  const recommendMutation = useRecommendSlots();
-  const bookMutation = useBookSlot();
-  const startMutation = useStartParking();
+  const recommendMutation = useRecommendSlots(selectedAreaId);
+  const bookMutation = useBookSlot(selectedAreaId);
+  const startMutation = useStartParking(selectedAreaId);
+
+  useEffect(() => {
+    if (isAdmin) return;
+    if (loadingMyCars || myCars.length === 0) return;
+    const stillValid = myCars.some((c) => c.carNumber === carNumber);
+    if (!carNumber || !stillValid) {
+      setCarNumber(myCars[0].carNumber);
+    }
+  }, [isAdmin, loadingMyCars, myCars, carNumber]);
 
   function handleSearch() {
-    if (!carNumber.trim()) { toast({ title: "Car number required", variant: "destructive" }); return; }
+    if (!isAdmin && myCars.length === 0) {
+      toast({
+        title: "Add a car first",
+        description: "Link at least one plate under My cars before booking.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!carNumber.trim()) {
+      toast({ title: "Car number required", variant: "destructive" });
+      return;
+    }
 
     recommendMutation.mutate({
       data: {
@@ -140,8 +182,9 @@ export function Book() {
     }, {
       onSuccess: (session) => {
         setActiveBooking(session as unknown as ParkingSession);
-        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetSlotsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey(selectedAreaId) });
+        queryClient.invalidateQueries({ queryKey: ["slots", selectedAreaId] });
+        void queryClient.invalidateQueries({ queryKey: getMyBookingsQueryKey() });
         toast({ title: "Slot booked!", description: `Slot ${slot.slotId} reserved. Press Start Parking when you arrive.` });
       },
       onError: (e: unknown) =>
@@ -158,6 +201,7 @@ export function Book() {
     startMutation.mutate({ sessionId: activeBooking.sessionId }, {
       onSuccess: (session) => {
         setActiveBooking(session as unknown as ParkingSession);
+        void queryClient.invalidateQueries({ queryKey: getMyBookingsQueryKey() });
         toast({ title: "Parking started!", description: "Billing has started from now." });
       },
       onError: () => toast({ title: "Error", description: "Could not start parking.", variant: "destructive" }),
@@ -328,20 +372,48 @@ export function Book() {
         <CardHeader>
           <CardTitle>Find a Parking Slot</CardTitle>
           <CardDescription>
-            Enter your details and preferences. We return up to <strong>5</strong> best-matching slots (never padded with
-            unrelated levels).
+            Booking for <strong>{selectedArea?.name ?? "…"}</strong> — change site in the header for another property.
+            We return up to <strong>5</strong> best-matching slots (never padded with unrelated levels).
+            {!isAdmin && (
+              <> You may only book with a plate from <Link href="/my-cars" className="text-indigo-600 font-medium hover:underline">My cars</Link>.</>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="max-w-sm space-y-2">
-            <Label htmlFor="carNumber">Car Number Plate</Label>
-            <Input
-              id="carNumber"
-              placeholder="e.g. KA 05 AB 1234"
-              value={carNumber}
-              onChange={(e) => setCarNumber(e.target.value.toUpperCase())}
-              className="font-mono"
-            />
+            <Label htmlFor={isAdmin ? "carNumber" : "carNumberSelect"}>Car number</Label>
+            {isAdmin ? (
+              <Input
+                id="carNumber"
+                placeholder="e.g. KA 05 AB 1234"
+                value={carNumber}
+                onChange={(e) => setCarNumber(e.target.value.toUpperCase())}
+                className="font-mono"
+              />
+            ) : loadingMyCars ? (
+              <p className="text-sm text-slate-500">Loading your cars…</p>
+            ) : myCars.length === 0 ? (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                No linked plates yet. Go to{" "}
+                <Link href="/my-cars" className="font-semibold text-indigo-700 underline">
+                  My cars
+                </Link>{" "}
+                and add your vehicle before booking.
+              </p>
+            ) : (
+              <Select value={carNumber} onValueChange={setCarNumber}>
+                <SelectTrigger id="carNumberSelect" className="font-mono">
+                  <SelectValue placeholder="Choose a linked plate" />
+                </SelectTrigger>
+                <SelectContent>
+                  {myCars.map((c) => (
+                    <SelectItem key={c.id} value={c.carNumber} className="font-mono">
+                      {c.carNumber}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -366,11 +438,12 @@ export function Book() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any Level</SelectItem>
-                  <SelectItem value="B1">B1 — Basement 1</SelectItem>
-                  <SelectItem value="B2">B2 — Basement 2</SelectItem>
-                  <SelectItem value="GF">GF — Ground Floor</SelectItem>
-                  <SelectItem value="L1">L1 — Level 1</SelectItem>
-                  <SelectItem value="L2">L2 — Level 2</SelectItem>
+                  {(selectedArea?.levels ?? []).map((lvl) => (
+                    <SelectItem key={lvl} value={lvl}>
+                      {lvl}
+                      {LEVEL_LABELS[lvl] ? ` — ${LEVEL_LABELS[lvl]}` : ""}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -407,7 +480,11 @@ export function Book() {
             size="lg"
             className="w-full"
             onClick={handleSearch}
-            disabled={recommendMutation.isPending}
+            disabled={
+              recommendMutation.isPending ||
+              !selectedAreaId ||
+              (!isAdmin && (loadingMyCars || myCars.length === 0 || !carNumber))
+            }
           >
             {recommendMutation.isPending ? "Searching..." : "Find top 5 slots"}
           </Button>

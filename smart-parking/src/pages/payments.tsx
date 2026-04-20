@@ -6,6 +6,7 @@ import {
   getGetCurrentFeeQueryKey,
 } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { useParkingArea } from "@/lib/parking-area-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,10 +25,10 @@ type Session = {
   slot?: { level: string; slotType: string; isPaid: boolean; pricePerHour: number } | null;
 };
 
-function LiveFeeCard({ sessionId }: { sessionId: number }) {
-  const { data, isLoading } = useGetCurrentFee(sessionId, {
+function LiveFeeCard({ areaId, sessionId }: { areaId: string; sessionId: number }) {
+  const { data, isLoading } = useGetCurrentFee(areaId, sessionId, {
     query: {
-      queryKey: getGetCurrentFeeQueryKey(sessionId),
+      queryKey: getGetCurrentFeeQueryKey(areaId, sessionId),
       refetchInterval: 30000,
     },
   });
@@ -45,6 +46,7 @@ function LiveFeeCard({ sessionId }: { sessionId: number }) {
 
 export function Payments() {
   const { user } = useAuth();
+  const { selectedAreaId, selectedArea } = useParkingArea();
   const isAdmin = user?.role === "admin";
 
   const [filterUserId, setFilterUserId] = useState("");
@@ -57,8 +59,11 @@ export function Payments() {
     return {};
   }, [isAdmin, appliedFilter]);
 
-  const { data: sessions, isLoading } = useGetSessions(sessionParams, {
-    query: { queryKey: getGetSessionsQueryKey(sessionParams) },
+  const { data: sessions, isLoading } = useGetSessions(selectedAreaId, sessionParams, {
+    query: {
+      queryKey: getGetSessionsQueryKey(selectedAreaId, sessionParams),
+      enabled: Boolean(selectedAreaId),
+    },
   });
 
   function handleApplyUserFilter() {
@@ -90,8 +95,8 @@ export function Payments() {
           <CardTitle>Payments</CardTitle>
           <CardDescription>
             {isAdmin
-              ? "Fleet view. Leave filter empty for everyone, or enter a login username (e.g. driver, sp)."
-              : `Your charges only — account ${user?.username ?? ""}.`}
+              ? `Payments at ${selectedArea?.name ?? "this site"}. Leave filter empty for everyone, or enter a login username (e.g. driver, sp).`
+              : `Your charges at ${selectedArea?.name ?? "this site"} — account ${user?.username ?? ""}.`}
           </CardDescription>
         </CardHeader>
         {isAdmin && (
@@ -217,8 +222,8 @@ export function Payments() {
                       )}
                     </div>
                     <div className="text-right flex-shrink-0">
-                      {session.paymentStatus === "parked" ? (
-                        <LiveFeeCard sessionId={session.sessionId} />
+                      {session.paymentStatus === "parked" && selectedAreaId ? (
+                        <LiveFeeCard areaId={selectedAreaId} sessionId={session.sessionId} />
                       ) : session.estimatedFee != null ? (
                         <div>
                           <div className="text-xl font-bold text-emerald-700">₹{session.estimatedFee.toFixed(0)}</div>

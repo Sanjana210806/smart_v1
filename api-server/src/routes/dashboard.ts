@@ -1,12 +1,15 @@
 import { Router, type IRouter } from "express";
-import { getAllSessions, getAllSlots } from "../lib/store";
+import { getAllSessionsForArea, getAllSlotsForArea } from "../lib/store";
 import { requireAdmin } from "../middleware/auth";
 
 const router: IRouter = Router();
 
+/** Operations metrics for one parking site only (switch area in the app header). */
 router.get("/dashboard", ...requireAdmin, async (req, res): Promise<void> => {
-  const slots = getAllSlots();
-  const sessions = getAllSessions();
+  const area = req.parkingArea!;
+  const areaId = area.areaId;
+  const slots = getAllSlotsForArea(areaId);
+  const sessions = getAllSessionsForArea(areaId);
 
   const totalSlots = slots.length;
   const availableSlots = slots.filter((s) => s.available).length;
@@ -22,7 +25,6 @@ router.get("/dashboard", ...requireAdmin, async (req, res): Promise<void> => {
 
   const activeSessions = sessions.filter((s) => s.paymentStatus === "parked").length;
 
-  // Revenue today = sum of completed session fees today
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const completedToday = sessions.filter(
@@ -33,7 +35,6 @@ router.get("/dashboard", ...requireAdmin, async (req, res): Promise<void> => {
   );
   const revenueTodayInr = completedToday.reduce((sum, s) => sum + (s.estimatedFee ?? 0), 0);
 
-  // Average duration in minutes
   const sessionsWithDuration = sessions.filter((s) => s.parkingStartTime && (s.exitTime || s.paymentStatus === "parked"));
   const totalDurationMin = sessionsWithDuration.reduce((sum, s) => {
     const start = new Date(s.parkingStartTime!).getTime();
@@ -44,14 +45,20 @@ router.get("/dashboard", ...requireAdmin, async (req, res): Promise<void> => {
     ? Math.round(totalDurationMin / sessionsWithDuration.length)
     : 0;
 
-  const levels = ["B1", "B2", "GF", "L1", "L2"];
-  const levelBreakdown = levels.map((level) => {
+  const levelOrder = [...area.levels];
+  const levelBreakdown = levelOrder.map((level) => {
     const levelSlots = slots.filter((s) => s.level === level);
     const available = levelSlots.filter((s) => s.available).length;
     return { level, total: levelSlots.length, available, occupied: levelSlots.length - available };
   });
 
   res.json({
+    area: {
+      areaId: area.areaId,
+      slug: area.slug,
+      name: area.name,
+      kind: area.kind,
+    },
     totalSlots,
     availableSlots,
     occupiedSlots,

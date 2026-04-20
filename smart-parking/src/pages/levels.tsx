@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useGetSlots, getGetSlotsQueryKey } from "@/lib/api-client";
+import { useParkingArea } from "@/lib/parking-area-context";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   BatteryCharging,
@@ -9,15 +10,16 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const LEVELS = ["B1", "B2", "GF", "L1", "L2"] as const;
-type Level = (typeof LEVELS)[number];
-
-const LEVEL_LABELS: Record<Level, string> = {
+const LEVEL_LABELS: Record<string, string> = {
   B1: "Basement 1",
   B2: "Basement 2",
   GF: "Ground Floor",
   L1: "Level 1",
   L2: "Level 2",
+  P1: "Platform 1",
+  P2: "Platform 2",
+  P3: "Platform 3",
+  G: "Ground",
 };
 
 type ParkingSlot = {
@@ -78,19 +80,38 @@ function SlotCard({ slot }: { slot: ParkingSlot }) {
 }
 
 export function Levels() {
-  const [activeLevel, setActiveLevel] = useState<Level>("GF");
+  const { selectedAreaId, selectedArea } = useParkingArea();
+  const levels = selectedArea?.levels ?? [];
+  const [activeLevel, setActiveLevel] = useState<string>("");
+
+  useEffect(() => {
+    if (levels.length === 0) {
+      setActiveLevel("");
+      return;
+    }
+    setActiveLevel((prev) => (prev && levels.includes(prev) ? prev : levels[0]));
+  }, [selectedArea?.areaId, levels]);
 
   const { data: slots, isLoading, isError, error } = useGetSlots(
+    selectedAreaId,
     { level: activeLevel },
-    { query: { queryKey: getGetSlotsQueryKey({ level: activeLevel }) } },
+    {
+      query: {
+        enabled: Boolean(selectedAreaId && activeLevel),
+        queryKey: getGetSlotsQueryKey(selectedAreaId, { level: activeLevel }),
+      },
+    },
   );
 
-  // ✅ SAFE ARRAY NORMALIZATION FIX
-  const safeSlots: ParkingSlot[] = Array.isArray(slots)
-    ? slots
-    : Array.isArray((slots as any)?.slots)
-      ? (slots as any).slots
-      : [];
+  const safeSlots: ParkingSlot[] = useMemo(
+    () =>
+      Array.isArray(slots)
+        ? slots
+        : Array.isArray((slots as { slots?: unknown })?.slots)
+          ? ((slots as { slots: ParkingSlot[] }).slots)
+          : [],
+    [slots],
+  );
 
   const available = safeSlots.filter((s) => s.available).length;
   const total = safeSlots.length;
@@ -103,11 +124,16 @@ export function Levels() {
 
   return (
     <div className="space-y-6">
+      <p className="text-sm text-slate-500">
+        Level map for <strong>{selectedArea?.name ?? "…"}</strong> — switch parking site in the header to view another layout.
+      </p>
+
       {/* Level Tabs */}
       <div className="flex gap-2 flex-wrap">
-        {LEVELS.map((level) => (
+        {levels.map((level) => (
           <button
             key={level}
+            type="button"
             onClick={() => setActiveLevel(level)}
             className={cn(
               "px-5 py-2.5 rounded-xl font-medium text-sm transition-all border",
@@ -118,7 +144,7 @@ export function Levels() {
           >
             {level}
             <span className="hidden md:inline ml-2 text-xs opacity-70">
-              — {LEVEL_LABELS[level]}
+              — {LEVEL_LABELS[level] ?? level}
             </span>
           </button>
         ))}
@@ -181,8 +207,7 @@ export function Levels() {
             Start the backend (e.g. <code className="rounded bg-white px-1">api-server</code> on port{" "}
             <code className="rounded bg-white px-1">8080</code>) or set{" "}
             <code className="rounded bg-white px-1">VITE_API_BASE_URL</code> in{" "}
-            <code className="rounded bg-white px-1">.env.local</code>. This app does not use SQL; slots
-            come from the API process memory.
+            <code className="rounded bg-white px-1">.env.local</code>.
           </p>
         </div>
       )}
@@ -201,7 +226,7 @@ export function Levels() {
         </div>
       ) : null}
 
-      {!isLoading && !isError && safeSlots.length === 0 && (
+      {!isLoading && !isError && safeSlots.length === 0 && activeLevel && (
         <p className="text-sm text-slate-500">
           No slots available for this level
         </p>

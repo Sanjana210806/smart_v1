@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { getAllSlots } from "../lib/store";
+import { getAllSlotsForArea } from "../lib/store";
 import { getSlotsQuerySchema } from "../lib/schemas";
 import { requireAuth, requireRole } from "../middleware/auth";
 
@@ -12,7 +12,8 @@ router.get("/slots", requireAuth, requireRole("admin", "user"), async (req, res)
     return;
   }
 
-  let slots = [...getAllSlots()];
+  const areaId = req.parkingArea!.areaId;
+  let slots = [...getAllSlotsForArea(areaId)];
 
   if (query.data.level) {
     slots = slots.filter((s) => s.level === query.data.level);

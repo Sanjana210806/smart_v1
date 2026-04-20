@@ -13,12 +13,25 @@ import {
   LogOut,
   Shield,
   User,
+  Tags,
+  UserPlus,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { useParkingArea } from "@/lib/parking-area-context";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-function SidebarLink({ item, location, onClick }: { item: typeof navItems[0]; location: string; onClick?: () => void }) {
+type NavItem = { href: string; label: string; icon: LucideIcon };
+
+function SidebarLink({ item, location, onClick }: { item: NavItem; location: string; onClick?: () => void }) {
   const isActive = location === item.href;
   return (
     <Link
@@ -42,26 +55,40 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, logout } = useAuth();
+  const { areas, selectedAreaId, setSelectedAreaId, selectedArea } = useParkingArea();
 
-  const navItems = useMemo(
-    () => [
+  const navItems = useMemo((): NavItem[] => {
+    const isAdmin = user?.role === "admin";
+    const items: NavItem[] = [
       {
         href: "/",
-        label: user?.role === "admin" ? "Operations" : "My parking",
+        label: isAdmin ? "Property overview" : "My parking",
         icon: LayoutDashboard,
       },
-      { href: "/book", label: "Book slot", icon: ParkingSquare },
+      {
+        href: "/book",
+        label: isAdmin ? "New booking" : "Book slot",
+        icon: ParkingSquare,
+      },
+      { href: "/my-cars", label: "My cars", icon: Tags },
       { href: "/levels", label: "Level map", icon: Layers },
-      { href: "/my-car", label: "Find my car", icon: Car },
+    ];
+    if (!isAdmin) {
+      items.push({ href: "/my-car", label: "Find my car", icon: Car });
+    }
+    items.push(
       {
         href: "/history",
-        label: user?.role === "admin" ? "All bookings" : "My bookings",
+        label: isAdmin ? "All bookings" : "My bookings",
         icon: History,
       },
       { href: "/payments", label: "Payments", icon: CreditCard },
-    ],
-    [user?.role],
-  );
+    );
+    if (isAdmin) {
+      items.push({ href: "/admin/users", label: "Create users", icon: UserPlus });
+    }
+    return items;
+  }, [user?.role]);
 
   const currentPage = navItems.find((n) => n.href === location)?.label ?? "Parking System";
 
@@ -110,7 +137,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <LogOut className="h-4 w-4 mr-2" />
             Sign out
           </Button>
-          <div className="text-xs text-slate-500">College Campus Parking</div>
+          <div className="text-xs text-slate-500 truncate" title={selectedArea?.name}>
+            {selectedArea ? `${selectedArea.name} · ${selectedArea.kind}` : "Parking site"}
+          </div>
         </div>
       </aside>
 
@@ -167,17 +196,43 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 md:px-8 h-16 flex items-center gap-4 shadow-sm">
+        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 md:px-8 min-h-16 py-2 flex flex-wrap items-center gap-3 shadow-sm">
           <button
             className="md:hidden p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100"
             onClick={() => setMobileOpen(true)}
           >
             <Menu className="h-5 w-5" />
           </button>
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="font-semibold text-slate-900 text-base leading-none">{currentPage}</h1>
-            <p className="text-xs text-slate-400 mt-0.5">Smart Multi-Level Parking System</p>
+            <p className="text-xs text-slate-400 mt-0.5 truncate">
+              {selectedArea
+                ? `${selectedArea.name} · ${
+                    user?.role === "admin"
+                      ? "live metrics for this site only"
+                      : "book & find car for this site · My bookings lists every site"
+                  }`
+                : "Smart parking"}
+            </p>
           </div>
+          {areas.length > 0 && (
+            <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
+              <span className="text-xs text-slate-500 shrink-0 hidden sm:inline">Parking site</span>
+              <Select value={selectedAreaId} onValueChange={setSelectedAreaId}>
+                <SelectTrigger className="h-9 w-full sm:w-[min(100%,280px)] text-xs bg-white">
+                  <SelectValue placeholder="Select site" />
+                </SelectTrigger>
+                <SelectContent>
+                  {areas.map((a) => (
+                    <SelectItem key={a.areaId} value={a.areaId}>
+                      <span className="font-medium">{a.name}</span>
+                      <span className="text-slate-500 capitalize"> · {a.kind}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </header>
 
         <main className="flex-1 p-4 md:p-8">

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { getAllSlots } from "../lib/store";
+import { getAllSlotsForArea } from "../lib/store";
 import { recommendSlotsBodySchema } from "../lib/schemas";
 import { requireAuth, requireRole } from "../middleware/auth";
 import {
@@ -25,7 +25,8 @@ router.post("/recommend", requireAuth, requireRole("admin", "user"), async (req,
   const params = parsed.data;
   const filters = echoRecommendFilters(params);
 
-  const slots = recommendParkingSlots(getAllSlots(), params, {
+  const areaId = req.parkingArea!.areaId;
+  const slots = recommendParkingSlots(getAllSlotsForArea(areaId), params, {
     maxResults: MAX_TOP_RECOMMENDATIONS,
   });
 

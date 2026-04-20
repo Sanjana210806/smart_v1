@@ -6,9 +6,10 @@ import {
   useExitParking,
   getGetDashboardQueryKey,
   getGetMyCarQueryKey,
-  getGetSlotsQueryKey,
   getGetCurrentFeeQueryKey,
+  getMyBookingsQueryKey,
 } from "@/lib/api-client";
+import { useParkingArea } from "@/lib/parking-area-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ import { QRCodeSVG } from "qrcode.react";
 export function MyCar() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { selectedAreaId } = useParkingArea();
 
   const [searchValue, setSearchValue] = useState("");
   const [searchQuery, setSearchQuery] = useState<{ carNumber?: string } | null>(null);
@@ -38,18 +40,33 @@ export function MyCar() {
   const [exitData, setExitData] = useState<{ fee: number; slotId: string } | null>(null);
 
   const { data: myCarData, isLoading } = useGetMyCar(
-    searchQuery ?? {},
-    { query: { enabled: !!searchQuery, queryKey: getGetMyCarQueryKey(searchQuery ?? {}) } }
+    selectedAreaId || undefined,
+    searchQuery ?? undefined,
+    {
+      query: {
+        enabled: Boolean(selectedAreaId && searchQuery),
+        queryKey: getGetMyCarQueryKey(selectedAreaId || undefined, searchQuery ?? undefined),
+      },
+    },
   );
 
   const session = myCarData?.session;
 
   const { data: feeData } = useGetCurrentFee(
+    selectedAreaId,
     session?.sessionId ?? 0,
-    { query: { enabled: !!session?.sessionId && session?.paymentStatus === "parked", queryKey: getGetCurrentFeeQueryKey(session?.sessionId ?? 0), refetchInterval: 30000 } }
+    {
+      query: {
+        enabled: Boolean(
+          selectedAreaId && session?.sessionId && session?.paymentStatus === "parked",
+        ),
+        queryKey: getGetCurrentFeeQueryKey(selectedAreaId, session?.sessionId ?? 0),
+        refetchInterval: 30000,
+      },
+    },
   );
 
-  const exitMutation = useExitParking();
+  const exitMutation = useExitParking(selectedAreaId);
 
   function handleSearch() {
     if (!searchValue.trim()) { toast({ title: "Please enter your car number", variant: "destructive" }); return; }
@@ -64,8 +81,9 @@ export function MyCar() {
         const d = data as unknown as { estimatedFee?: number; slotId: string };
         setExited(true);
         setExitData({ fee: d.estimatedFee ?? 0, slotId: d.slotId });
-        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetSlotsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey(selectedAreaId) });
+        queryClient.invalidateQueries({ queryKey: ["slots", selectedAreaId] });
+        void queryClient.invalidateQueries({ queryKey: getMyBookingsQueryKey() });
         toast({ title: "Exit complete!", description: `Total fee: ₹${d.estimatedFee ?? 0}` });
       },
       onError: () => toast({ title: "Exit failed", variant: "destructive" }),

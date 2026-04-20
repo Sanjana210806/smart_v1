@@ -1,6 +1,22 @@
 import { useMutation, useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { getAuthToken } from "./auth-storage";
 
+/** Matches `GET /api/areas` rows from the API. */
+export type ParkingAreaDto = {
+  areaId: string;
+  slug: string;
+  name: string;
+  kind: "mall" | "metro" | "office";
+  levels: string[];
+};
+
+/** Matches `GET /api/me/cars`. */
+export type UserCarDto = {
+  id: number;
+  userId: string;
+  carNumber: string;
+};
+
 let baseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").trim();
 
 /** Local dev: default to same host as typical api-server (no SQL — API uses in-memory slots). */
@@ -10,7 +26,7 @@ export function setBaseUrl(url: string): void {
   baseUrl = url.trim();
 }
 
-function getApiBaseUrl(): string {
+export function getResolvedApiBaseUrl(): string {
   let resolved = baseUrl.replace(/\/$/, "");
   if (!resolved && import.meta.env.DEV) {
     resolved = DEV_DEFAULT_API.replace(/\/$/, "");
@@ -18,8 +34,12 @@ function getApiBaseUrl(): string {
   return resolved;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const base = getApiBaseUrl();
+function areaBase(areaId: string): string {
+  return `/api/areas/${encodeURIComponent(areaId)}`;
+}
+
+export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const base = getResolvedApiBaseUrl();
   if (!base) {
     throw new Error(
       "VITE_API_BASE_URL is not set. For production builds (e.g. GitHub Pages), set it to your API origin. For local dev, run the api-server on port 8080 or set VITE_API_BASE_URL in .env.local.",
@@ -52,25 +72,45 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function getGetDashboardQueryKey() {
-  return ["dashboard"];
+export function getParkingAreasQueryKey() {
+  return ["parking-areas"] as const;
 }
 
-export function useGetDashboard(options?: { query?: Omit<UseQueryOptions<any>, "queryKey" | "queryFn"> }) {
+export function useGetParkingAreas(
+  options?: { query?: Omit<UseQueryOptions<ParkingAreaDto[]>, "queryKey" | "queryFn"> },
+) {
   return useQuery({
-    queryKey: getGetDashboardQueryKey(),
-    queryFn: () => request("/api/dashboard"),
+    queryKey: getParkingAreasQueryKey(),
+    queryFn: () => apiRequest<ParkingAreaDto[]>("/api/areas"),
+    staleTime: 5 * 60 * 1000,
     ...(options?.query ?? {}),
   });
 }
 
-export function getGetSlotsQueryKey(params?: { level?: string; slotType?: string }) {
-  return ["slots", params ?? {}];
+export function getGetDashboardQueryKey(areaId?: string) {
+  return ["dashboard", areaId] as const;
+}
+
+export function useGetDashboard(
+  areaId: string | undefined,
+  options?: { query?: Omit<UseQueryOptions<unknown>, "queryKey" | "queryFn"> },
+) {
+  return useQuery({
+    queryKey: getGetDashboardQueryKey(areaId),
+    queryFn: () => apiRequest(`${areaBase(areaId!)}/dashboard`),
+    enabled: Boolean(areaId),
+    ...(options?.query ?? {}),
+  });
+}
+
+export function getGetSlotsQueryKey(areaId: string | undefined, params?: { level?: string; slotType?: string }) {
+  return ["slots", areaId, params ?? {}] as const;
 }
 
 export function useGetSlots(
+  areaId: string | undefined,
   params?: { level?: string; slotType?: string },
-  options?: { query?: Omit<UseQueryOptions<any>, "queryKey" | "queryFn"> },
+  options?: { query?: Omit<UseQueryOptions<unknown>, "queryKey" | "queryFn"> },
 ) {
   const search = new URLSearchParams();
   if (params?.level) search.set("level", params.level);
@@ -78,19 +118,24 @@ export function useGetSlots(
   const suffix = search.toString() ? `?${search.toString()}` : "";
 
   return useQuery({
-    queryKey: getGetSlotsQueryKey(params),
-    queryFn: () => request(`/api/slots${suffix}`),
+    queryKey: getGetSlotsQueryKey(areaId, params),
+    queryFn: () => apiRequest(`${areaBase(areaId!)}/slots${suffix}`),
+    enabled: Boolean(areaId),
     ...(options?.query ?? {}),
   });
 }
 
-export function getGetSessionsQueryKey(params?: { userId?: string; status?: string }) {
-  return ["sessions", params ?? {}];
+export function getGetSessionsQueryKey(
+  areaId: string | undefined,
+  params?: { userId?: string; status?: string },
+) {
+  return ["sessions", areaId, params ?? {}] as const;
 }
 
 export function useGetSessions(
+  areaId: string | undefined,
   params?: { userId?: string; status?: string },
-  options?: { query?: Omit<UseQueryOptions<any>, "queryKey" | "queryFn"> },
+  options?: { query?: Omit<UseQueryOptions<unknown>, "queryKey" | "queryFn"> },
 ) {
   const search = new URLSearchParams();
   if (params?.userId) search.set("userId", params.userId);
@@ -98,34 +143,41 @@ export function useGetSessions(
   const suffix = search.toString() ? `?${search.toString()}` : "";
 
   return useQuery({
-    queryKey: getGetSessionsQueryKey(params),
-    queryFn: () => request(`/api/sessions${suffix}`),
+    queryKey: getGetSessionsQueryKey(areaId, params),
+    queryFn: () => apiRequest(`${areaBase(areaId!)}/sessions${suffix}`),
+    enabled: Boolean(areaId),
     ...(options?.query ?? {}),
   });
 }
 
-export function getGetCurrentFeeQueryKey(sessionId: number) {
-  return ["current-fee", sessionId];
+export function getGetCurrentFeeQueryKey(areaId: string | undefined, sessionId: number) {
+  return ["current-fee", areaId, sessionId] as const;
 }
 
 export function useGetCurrentFee(
+  areaId: string | undefined,
   sessionId: number,
-  options?: { query?: Omit<UseQueryOptions<any>, "queryKey" | "queryFn"> },
+  options?: { query?: Omit<UseQueryOptions<unknown>, "queryKey" | "queryFn"> },
 ) {
   return useQuery({
-    queryKey: getGetCurrentFeeQueryKey(sessionId),
-    queryFn: () => request(`/api/sessions/${sessionId}/fee`),
+    queryKey: getGetCurrentFeeQueryKey(areaId, sessionId),
+    queryFn: () => apiRequest(`${areaBase(areaId!)}/sessions/${sessionId}/fee`),
+    enabled: Boolean(areaId && sessionId > 0),
     ...(options?.query ?? {}),
   });
 }
 
-export function getGetMyCarQueryKey(params?: { userId?: string; carNumber?: string }) {
-  return ["my-car", params ?? {}];
+export function getGetMyCarQueryKey(
+  areaId: string | undefined,
+  params?: { userId?: string; carNumber?: string },
+) {
+  return ["my-car", areaId, params ?? {}] as const;
 }
 
 export function useGetMyCar(
+  areaId: string | undefined,
   params?: { userId?: string; carNumber?: string },
-  options?: { query?: Omit<UseQueryOptions<any>, "queryKey" | "queryFn"> },
+  options?: { query?: Omit<UseQueryOptions<unknown>, "queryKey" | "queryFn"> },
 ) {
   const search = new URLSearchParams();
   if (params?.userId) search.set("userId", params.userId);
@@ -133,42 +185,145 @@ export function useGetMyCar(
   const suffix = search.toString() ? `?${search.toString()}` : "";
 
   return useQuery({
-    queryKey: getGetMyCarQueryKey(params),
-    queryFn: () => request(`/api/my-car${suffix}`),
+    queryKey: getGetMyCarQueryKey(areaId, params),
+    queryFn: () => apiRequest(`${areaBase(areaId!)}/my-car${suffix}`),
+    enabled: Boolean(areaId),
     ...(options?.query ?? {}),
   });
 }
 
-export function useRecommendSlots() {
+export function useRecommendSlots(areaId: string | undefined) {
   return useMutation({
     mutationFn: (payload: { data: Record<string, unknown> }) =>
-      request("/api/recommend", {
+      apiRequest(`${areaBase(areaId!)}/recommend`, {
         method: "POST",
         body: JSON.stringify(payload.data),
       }),
   });
 }
 
-export function useBookSlot() {
+export function useBookSlot(areaId: string | undefined) {
   return useMutation({
     mutationFn: (payload: { data: Record<string, unknown> }) =>
-      request("/api/book", {
+      apiRequest(`${areaBase(areaId!)}/book`, {
         method: "POST",
         body: JSON.stringify(payload.data),
       }),
   });
 }
 
-export function useStartParking() {
+export function useStartParking(areaId: string | undefined) {
   return useMutation({
     mutationFn: (payload: { sessionId: number }) =>
-      request(`/api/sessions/${payload.sessionId}/start`, { method: "POST" }),
+      apiRequest(`${areaBase(areaId!)}/sessions/${payload.sessionId}/start`, { method: "POST" }),
   });
 }
 
-export function useExitParking() {
+export function useExitParking(areaId: string | undefined) {
   return useMutation({
     mutationFn: (payload: { sessionId: number }) =>
-      request(`/api/sessions/${payload.sessionId}/exit`, { method: "POST" }),
+      apiRequest(`${areaBase(areaId!)}/sessions/${payload.sessionId}/exit`, { method: "POST" }),
+  });
+}
+
+export function getMyCarsQueryKey() {
+  return ["my-cars"] as const;
+}
+
+/** Matches `GET /api/me/bookings` rows (all sites for the signed-in user). */
+export type MyBookingDto = {
+  sessionId: number;
+  areaId: string;
+  areaName: string;
+  userId: string;
+  carNumber: string;
+  slotId: string;
+  bookingTime: string;
+  parkingStartTime?: string | null;
+  exitTime?: string | null;
+  estimatedFee?: number | null;
+  paymentStatus: string;
+  durationMinutes?: number | null;
+  slot?: { level: string; slotType: string } | null;
+};
+
+export function getMyBookingsQueryKey() {
+  return ["my-bookings"] as const;
+}
+
+export function useGetMyBookings(
+  options?: { query?: Omit<UseQueryOptions<MyBookingDto[]>, "queryKey" | "queryFn"> },
+) {
+  return useQuery({
+    queryKey: getMyBookingsQueryKey(),
+    queryFn: () => apiRequest<MyBookingDto[]>("/api/me/bookings"),
+    staleTime: 30 * 1000,
+    ...(options?.query ?? {}),
+  });
+}
+
+export function useGetMyCars(
+  options?: { query?: Omit<UseQueryOptions<UserCarDto[]>, "queryKey" | "queryFn"> },
+) {
+  return useQuery({
+    queryKey: getMyCarsQueryKey(),
+    queryFn: () => apiRequest<UserCarDto[]>("/api/me/cars"),
+    staleTime: 60 * 1000,
+    ...(options?.query ?? {}),
+  });
+}
+
+export function useAddMyCar() {
+  return useMutation({
+    mutationFn: (payload: { carNumber: string }) =>
+      apiRequest<UserCarDto>("/api/me/cars", {
+        method: "POST",
+        body: JSON.stringify({ carNumber: payload.carNumber }),
+      }),
+  });
+}
+
+export function useDeleteMyCar() {
+  return useMutation({
+    mutationFn: (payload: { carNumber: string }) =>
+      apiRequest<{ ok: boolean; removed: number }>(
+        `/api/me/cars/${encodeURIComponent(payload.carNumber)}`,
+        { method: "DELETE" },
+      ),
+  });
+}
+
+export type AdminUserSummaryDto = {
+  username: string;
+  role: "admin" | "user";
+  carCount: number;
+};
+
+export function getAdminUsersQueryKey() {
+  return ["admin-users"] as const;
+}
+
+export function useListAdminUsers(
+  options?: { query?: Omit<UseQueryOptions<AdminUserSummaryDto[]>, "queryKey" | "queryFn"> },
+) {
+  return useQuery({
+    queryKey: getAdminUsersQueryKey(),
+    queryFn: () => apiRequest<AdminUserSummaryDto[]>("/api/admin/users"),
+    ...(options?.query ?? {}),
+  });
+}
+
+export function useCreateAdminUser() {
+  return useMutation({
+    mutationFn: (payload: {
+      username: string;
+      password: string;
+      role: "admin" | "user";
+      cars: string[];
+    }) =>
+      apiRequest<{ user: { username: string; role: string }; cars: UserCarDto[]; warning?: string }>(
+        "/api/admin/users",
+        { method: "POST", body: JSON.stringify(payload) },
+      ),
   });
 }

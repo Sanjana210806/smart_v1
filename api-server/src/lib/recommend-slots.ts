@@ -9,7 +9,8 @@ export type RecommendParams = {
   /** When true, only slots with easy access (near lift). Default false. */
   needsEasy?: boolean;
   parkingPreference: "free" | "paid" | "best";
-  preferredLevel?: "B1" | "B2" | "GF" | "L1" | "L2" | "any";
+  /** Level code for the current parking area (mall / metro / office layouts differ). */
+  preferredLevel?: string;
 };
 
 const sortByLift = (slots: ParkingSlot[]) =>

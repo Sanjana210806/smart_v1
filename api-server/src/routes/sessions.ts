@@ -1,20 +1,30 @@
 import { Router, type IRouter } from "express";
 import {
-  findSessionById,
-  getAllSessions,
-  getSlotById,
+  findActiveSessionByCarNumber,
+  findSessionByIdInArea,
+  getUserCars,
+  getAllSessionsForArea,
+  isCarOwnedByUser,
+  getSlotByAreaAndId,
   insertSession,
-  setSlotAvailable,
+  setSlotAvailableForArea,
   updateSessionFull,
 } from "../lib/store";
 import { bookSlotBodySchema, getMyCarQuerySchema, getSessionsQuerySchema, sessionIdParamSchema } from "../lib/schemas";
-import type { ParkingSession } from "../lib/types";
+import type { ParkingAreaKind, ParkingSession } from "../lib/types";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { normalizeCarNumber } from "../lib/car-number";
 
 const router: IRouter = Router();
 
-/** Generate text-based route directions for a slot */
-function generateRouteSteps(level: string, slotId: string): string {
+/** Generate text-based route directions for a slot, tuned by site type. */
+function generateRouteSteps(level: string, slotId: string, kind: ParkingAreaKind): string {
+  if (kind === "metro") {
+    return `Enter metro parking from the blue METRO entrance → Follow signs to ${level} (platform deck) → Locate pillar markers → Slot ${slotId}. Exit: follow EXIT / P+R signs to the fare gates and ramp.`;
+  }
+  if (kind === "office") {
+    return `Enter campus vehicle gate → Show badge if prompted → Take the garage ramp to ${level} → Slot ${slotId} is on the signed bay row. Exit: reverse to the ramp → exit arm at security.`;
+  }
   const levelDirections: Record<string, string> = {
     GF: "Enter main gate → Turn RIGHT at security booth → Continue 50m straight",
     B1: "Enter main gate → Take the DOWN ramp → B1 basement level",
@@ -26,12 +36,10 @@ function generateRouteSteps(level: string, slotId: string): string {
   return `${base} → Turn LEFT at pillar → Look for slot ${slotId} → Park and press Start Parking. Exit: Reverse out → Follow EXIT signs → RIGHT at barrier → Main gate.`;
 }
 
-/** Generate QR data string */
 function generateQrData(sessionId: number, carNumber: string, slotId: string, feeInr: number): string {
   return JSON.stringify({ sessionId, carNumber, slotId, feeInr, ts: Date.now() });
 }
 
-/** Calculate fee in INR: ceil((now - startTime) / 1hr) * pricePerHour */
 function calculateFeeInr(parkingStartTime: Date | null, pricePerHour: number): number {
   if (!parkingStartTime || pricePerHour === 0) return 0;
   const diffMs = Date.now() - parkingStartTime.getTime();
@@ -39,9 +47,8 @@ function calculateFeeInr(parkingStartTime: Date | null, pricePerHour: number): n
   return Math.ceil(diffHrs) * pricePerHour;
 }
 
-/** Enrich session with slot data */
 function enrichSession(session: ParkingSession) {
-  const slot = getSlotById(session.slotId) ?? null;
+  const slot = getSlotByAreaAndId(session.areaId, session.slotId) ?? null;
 
   let durationMinutes: number | null = null;
   if (session.parkingStartTime) {
@@ -52,7 +59,17 @@ function enrichSession(session: ParkingSession) {
   return { ...session, slot, durationMinutes };
 }
 
-// GET /sessions — admin: full list + query filters; user: only own sessions (by JWT username ↔ userId)
+function isAdmin(req: { auth?: { role: "admin" | "user" } }): boolean {
+  return req.auth?.role === "admin";
+}
+
+function rejectIfUserNotOwner(req: { auth?: { role: "admin" | "user"; username: string } }, session: ParkingSession): string | undefined {
+  if (!isAdmin(req) && req.auth?.username !== session.userId) {
+    return "You can only access your own parking sessions";
+  }
+  return undefined;
+}
+
 router.get("/sessions", requireAuth, requireRole("admin", "user"), async (req, res): Promise<void> => {
   const query = getSessionsQuerySchema.safeParse(req.query);
   if (!query.success) {
@@ -60,7 +77,8 @@ router.get("/sessions", requireAuth, requireRole("admin", "user"), async (req, r
     return;
   }
 
-  let sessions = [...getAllSessions()];
+  const areaId = req.parkingArea!.areaId;
+  let sessions = [...getAllSessionsForArea(areaId)];
 
   if (req.auth!.role === "user") {
     sessions = sessions.filter((s) => s.userId === req.auth!.username);
@@ -80,7 +98,6 @@ router.get("/sessions", requireAuth, requireRole("admin", "user"), async (req, r
   res.json(enriched);
 });
 
-// POST /book — book a slot (reservation, does NOT start billing)
 router.post("/book", requireAuth, requireRole("admin", "user"), async (req, res): Promise<void> => {
   const parsed = bookSlotBodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -88,16 +105,44 @@ router.post("/book", requireAuth, requireRole("admin", "user"), async (req, res)
     return;
   }
 
+  const area = req.parkingArea!;
+  const areaId = area.areaId;
   const { carNumber, slotId } = parsed.data;
   const userId = req.auth!.username;
+  const normalizedCarNumber = normalizeCarNumber(carNumber);
+  if (!normalizedCarNumber) {
+    res.status(400).json({ error: "Invalid car number", code: "INVALID_CAR_NUMBER" });
+    return;
+  }
 
-  const slot = getSlotById(slotId);
+  if (!isAdmin(req) && !isCarOwnedByUser(userId, normalizedCarNumber)) {
+    res.status(403).json({
+      error: "This car number is not linked to your account. Add it in My Cars first.",
+      code: "CAR_NOT_LINKED_TO_USER",
+      carNumber: normalizedCarNumber,
+    });
+    return;
+  }
+
+  const activeCarSession = findActiveSessionByCarNumber(normalizedCarNumber);
+  if (activeCarSession) {
+    res.status(409).json({
+      error: "This car already has an active booking in another session. Exit or complete it first.",
+      code: "CAR_ALREADY_ACTIVE",
+      carNumber: normalizedCarNumber,
+      activeSession: activeCarSession,
+    });
+    return;
+  }
+
+  const slot = getSlotByAreaAndId(areaId, slotId);
 
   if (!slot) {
     res.status(404).json({
-      error: `No slot exists with id "${slotId}". Check the slot id and try again.`,
+      error: `No slot exists with id "${slotId}" in this parking area.`,
       code: "SLOT_NOT_FOUND",
       slotId,
+      areaId,
     });
     return;
   }
@@ -111,12 +156,13 @@ router.post("/book", requireAuth, requireRole("admin", "user"), async (req, res)
     return;
   }
 
-  const routeSteps = generateRouteSteps(slot.level, slotId);
+  const routeSteps = generateRouteSteps(slot.level, slotId, area.kind);
 
-  setSlotAvailable(slotId, false);
+  setSlotAvailableForArea(areaId, slotId, false);
 
   const tempQrData = JSON.stringify({
     type: "booking",
+    areaId,
     carNumber,
     slotId,
     level: slot.level,
@@ -124,6 +170,7 @@ router.post("/book", requireAuth, requireRole("admin", "user"), async (req, res)
   });
 
   const session = insertSession({
+    areaId,
     userId,
     carNumber,
     slotId,
@@ -138,7 +185,6 @@ router.post("/book", requireAuth, requireRole("admin", "user"), async (req, res)
   res.status(201).json(enrichSession(session));
 });
 
-// POST /sessions/:sessionId/start — start actual parking (billing begins)
 router.post("/sessions/:sessionId/start", requireAuth, requireRole("admin", "user"), async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.sessionId) ? req.params.sessionId[0] : req.params.sessionId;
   const params = sessionIdParamSchema.safeParse({ sessionId: raw });
@@ -147,14 +193,20 @@ router.post("/sessions/:sessionId/start", requireAuth, requireRole("admin", "use
     return;
   }
 
-  const session = findSessionById(params.data.sessionId);
+  const areaId = req.parkingArea!.areaId;
+  const session = findSessionByIdInArea(params.data.sessionId, areaId);
 
   if (!session) {
-    res.status(404).json({ error: "Session not found" });
+    res.status(404).json({ error: "Session not found in this parking area" });
+    return;
+  }
+  const deny = rejectIfUserNotOwner(req, session);
+  if (deny) {
+    res.status(403).json({ error: deny, code: "FORBIDDEN_SESSION" });
     return;
   }
 
-  const slot = getSlotById(session.slotId);
+  const slot = getSlotByAreaAndId(areaId, session.slotId);
 
   const qrData = generateQrData(session.sessionId, session.carNumber, session.slotId, slot?.pricePerHour ?? 0);
 
@@ -168,7 +220,6 @@ router.post("/sessions/:sessionId/start", requireAuth, requireRole("admin", "use
   res.json(enrichSession(updated));
 });
 
-// GET /sessions/:sessionId/fee — current fee in INR
 router.get("/sessions/:sessionId/fee", requireAuth, requireRole("admin", "user"), async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.sessionId) ? req.params.sessionId[0] : req.params.sessionId;
   const params = sessionIdParamSchema.safeParse({ sessionId: raw });
@@ -177,14 +228,20 @@ router.get("/sessions/:sessionId/fee", requireAuth, requireRole("admin", "user")
     return;
   }
 
-  const session = findSessionById(params.data.sessionId);
+  const areaId = req.parkingArea!.areaId;
+  const session = findSessionByIdInArea(params.data.sessionId, areaId);
 
   if (!session) {
     res.status(404).json({ error: "Session not found" });
     return;
   }
+  const deny = rejectIfUserNotOwner(req, session);
+  if (deny) {
+    res.status(403).json({ error: deny, code: "FORBIDDEN_SESSION" });
+    return;
+  }
 
-  const slot = getSlotById(session.slotId);
+  const slot = getSlotByAreaAndId(areaId, session.slotId);
 
   const pricePerHour = slot?.pricePerHour ?? 0;
   const startTime = session.parkingStartTime ? new Date(session.parkingStartTime) : null;
@@ -209,7 +266,6 @@ router.get("/sessions/:sessionId/fee", requireAuth, requireRole("admin", "user")
   });
 });
 
-// POST /sessions/:sessionId/exit — finalize and mark paid
 router.post("/sessions/:sessionId/exit", requireAuth, requireRole("admin", "user"), async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.sessionId) ? req.params.sessionId[0] : req.params.sessionId;
   const params = sessionIdParamSchema.safeParse({ sessionId: raw });
@@ -218,14 +274,20 @@ router.post("/sessions/:sessionId/exit", requireAuth, requireRole("admin", "user
     return;
   }
 
-  const session = findSessionById(params.data.sessionId);
+  const areaId = req.parkingArea!.areaId;
+  const session = findSessionByIdInArea(params.data.sessionId, areaId);
 
   if (!session) {
     res.status(404).json({ error: "Session not found" });
     return;
   }
+  const deny = rejectIfUserNotOwner(req, session);
+  if (deny) {
+    res.status(403).json({ error: deny, code: "FORBIDDEN_SESSION" });
+    return;
+  }
 
-  const slot = getSlotById(session.slotId);
+  const slot = getSlotByAreaAndId(areaId, session.slotId);
 
   const pricePerHour = slot?.pricePerHour ?? 0;
   const startTime = session.parkingStartTime ? new Date(session.parkingStartTime) : null;
@@ -234,7 +296,7 @@ router.post("/sessions/:sessionId/exit", requireAuth, requireRole("admin", "user
   const now = new Date();
 
   if (slot) {
-    setSlotAvailable(session.slotId, true);
+    setSlotAvailableForArea(areaId, session.slotId, true);
   }
 
   const completed: ParkingSession = {
@@ -247,7 +309,6 @@ router.post("/sessions/:sessionId/exit", requireAuth, requireRole("admin", "user
   res.json(enrichSession(completed));
 });
 
-// GET /sessions/:sessionId
 router.get("/sessions/:sessionId", requireAuth, requireRole("admin", "user"), async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.sessionId) ? req.params.sessionId[0] : req.params.sessionId;
   const params = sessionIdParamSchema.safeParse({ sessionId: raw });
@@ -256,17 +317,22 @@ router.get("/sessions/:sessionId", requireAuth, requireRole("admin", "user"), as
     return;
   }
 
-  const session = findSessionById(params.data.sessionId);
+  const areaId = req.parkingArea!.areaId;
+  const session = findSessionByIdInArea(params.data.sessionId, areaId);
 
   if (!session) {
     res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  const deny = rejectIfUserNotOwner(req, session);
+  if (deny) {
+    res.status(403).json({ error: deny, code: "FORBIDDEN_SESSION" });
     return;
   }
 
   res.json(enrichSession(session));
 });
 
-// GET /my-car
 router.get("/my-car", requireAuth, requireRole("admin", "user"), async (req, res): Promise<void> => {
   const query = getMyCarQuerySchema.safeParse(req.query);
   if (!query.success) {
@@ -274,19 +340,38 @@ router.get("/my-car", requireAuth, requireRole("admin", "user"), async (req, res
     return;
   }
 
-  let sessions = [...getAllSessions()];
-
-  if (query.data.userId) {
-    sessions = sessions.filter((s) => s.userId === query.data.userId && s.paymentStatus !== "completed");
-  } else if (query.data.carNumber) {
-    sessions = sessions.filter((s) => s.carNumber === query.data.carNumber && s.paymentStatus !== "completed");
+  const areaId = req.parkingArea!.areaId;
+  let sessions = [...getAllSessionsForArea(areaId)];
+  const role = req.auth!.role;
+  const username = req.auth!.username;
+  if (role === "admin") {
+    if (query.data.userId) {
+      sessions = sessions.filter((s) => s.userId === query.data.userId && s.paymentStatus !== "completed");
+    } else if (query.data.carNumber) {
+      const norm = normalizeCarNumber(query.data.carNumber);
+      sessions = sessions.filter((s) => normalizeCarNumber(s.carNumber) === norm && s.paymentStatus !== "completed");
+    }
   } else {
-    res.json({ found: false, message: "Please provide userId or carNumber.", session: null });
-    return;
+    sessions = sessions.filter((s) => s.userId === username && s.paymentStatus !== "completed");
+    if (query.data.userId && query.data.userId !== username) {
+      res.status(403).json({ error: "You can only query your own sessions", code: "FORBIDDEN_QUERY" });
+      return;
+    }
+    if (query.data.carNumber) {
+      const norm = normalizeCarNumber(query.data.carNumber);
+      if (!isCarOwnedByUser(username, norm)) {
+        res.status(403).json({
+          error: "This car is not linked to your account",
+          code: "CAR_NOT_LINKED_TO_USER",
+        });
+        return;
+      }
+      sessions = sessions.filter((s) => normalizeCarNumber(s.carNumber) === norm);
+    }
   }
 
   if (sessions.length === 0) {
-    res.json({ found: false, message: "No active parking session found.", session: null });
+    res.json({ found: false, message: "No active parking session found in this area.", session: null });
     return;
   }
 
@@ -297,6 +382,7 @@ router.get("/my-car", requireAuth, requireRole("admin", "user"), async (req, res
     found: true,
     message: `Your car is parked at slot ${latest.slotId}`,
     session: enriched,
+    linkedCars: role === "user" ? getUserCars(username).map((c) => c.carNumber) : undefined,
   });
 });
 

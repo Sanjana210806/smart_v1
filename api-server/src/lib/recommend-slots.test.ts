@@ -7,9 +7,12 @@ function slotsOnLevel(level: string) {
   return buildSeedSlots().filter((s) => s.level === level);
 }
 
+const A = "area-test";
+
 /** Minimal fixtures for precise permutation tests */
 const mixedFixture: ParkingSlot[] = [
   {
+    areaId: A,
     slotId: "B1-01",
     level: "B1",
     slotType: "ev",
@@ -19,6 +22,7 @@ const mixedFixture: ParkingSlot[] = [
     nearLift: true,
   },
   {
+    areaId: A,
     slotId: "B1-02",
     level: "B1",
     slotType: "ev",
@@ -28,6 +32,7 @@ const mixedFixture: ParkingSlot[] = [
     nearLift: false,
   },
   {
+    areaId: A,
     slotId: "B1-03",
     level: "B1",
     slotType: "accessible",
@@ -37,6 +42,7 @@ const mixedFixture: ParkingSlot[] = [
     nearLift: true,
   },
   {
+    areaId: A,
     slotId: "B2-01",
     level: "B2",
     slotType: "ev",
@@ -46,6 +52,7 @@ const mixedFixture: ParkingSlot[] = [
     nearLift: false,
   },
   {
+    areaId: A,
     slotId: "GF-01",
     level: "GF",
     slotType: "premium",

@@ -9,12 +9,15 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/layout";
 import { AuthProvider, RequireAuth } from "@/lib/auth-context";
+import { ParkingAreaProvider } from "@/lib/parking-area-context";
 import { Home } from "@/pages/home";
 import { Book } from "@/pages/book";
 import { Levels } from "@/pages/levels";
 import { MyCar } from "@/pages/my-car";
 import { HistoryPage } from "@/pages/history";
 import { Payments } from "@/pages/payments";
+import { MyCarsPage } from "@/pages/my-cars";
+import { AdminUsersPage } from "@/pages/admin-users";
 import { Login } from "@/pages/login";
 import NotFound from "@/pages/not-found";
 
@@ -32,10 +35,12 @@ function AppRouter() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/book" component={Book} />
+      <Route path="/my-cars" component={MyCarsPage} />
       <Route path="/levels" component={Levels} />
       <Route path="/my-car" component={MyCar} />
       <Route path="/history" component={HistoryPage} />
       <Route path="/payments" component={Payments} />
+      <Route path="/admin/users" component={AdminUsersPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -54,9 +59,11 @@ function App() {
               <Route path="/login" component={Login} />
               <Route>
                 <RequireAuth>
-                  <Layout>
-                    <AppRouter />
-                  </Layout>
+                  <ParkingAreaProvider>
+                    <Layout>
+                      <AppRouter />
+                    </Layout>
+                  </ParkingAreaProvider>
                 </RequireAuth>
               </Route>
             </Switch>
