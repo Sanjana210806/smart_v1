@@ -12,9 +12,30 @@ const base = configuredBasePath
   ? `/${configuredBasePath.replace(/^\/+|\/+$/g, "")}/`
   : "/";
 
+/** Lets you verify the API origin on GitHub Pages without searching minified JS (View page source → meta name="x-api-origin"). */
+function apiOriginMetaPlugin() {
+  return {
+    name: "api-origin-meta",
+    transformIndexHtml(html: string) {
+      const raw = process.env.VITE_API_BASE_URL?.trim() ?? "";
+      if (!raw) {
+        return html.replace(
+          "<head>",
+          `<head>\n    <!-- Build: VITE_API_BASE_URL was empty — set it in GitHub Actions Variables before deploy. -->`,
+        );
+      }
+      const safe = raw.replace(/[<>&'"]/g, "");
+      return html.replace(
+        "<head>",
+        `<head>\n    <meta name="x-api-origin" content="${safe}" />`,
+      );
+    },
+  };
+}
+
 export default defineConfig({
   base,
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), apiOriginMetaPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

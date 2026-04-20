@@ -41,4 +41,8 @@ if (apiBaseUrl) {
   setBaseUrl(apiBaseUrl);
 }
 
+if (import.meta.env.PROD && apiBaseUrl) {
+  console.info("[Smart Parking] API origin:", apiBaseUrl);
+}
+
 createRoot(document.getElementById("root")!).render(<App />);

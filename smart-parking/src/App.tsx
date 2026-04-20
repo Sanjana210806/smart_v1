@@ -42,13 +42,14 @@ function AppRouter() {
 }
 
 function App() {
-  const basePath = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
-
+  // Hash routes are `#/login`, `#/book` — the path wouter sees is `/login`, NOT `/smart_v1/login`.
+  // Setting `base` to the Vite BASE_URL (`/smart_v1`) breaks matching (path becomes `~/login`).
+  // import.meta.env.BASE_URL is still used for asset URLs by Vite; only the Router base stays empty for hash mode.
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TooltipProvider>
-          <WouterRouter base={basePath} hook={useHashLocation}>
+          <WouterRouter base="" hook={useHashLocation}>
             <Switch>
               <Route path="/login" component={Login} />
               <Route>

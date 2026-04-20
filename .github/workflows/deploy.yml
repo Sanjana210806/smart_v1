@@ -41,17 +41,21 @@ jobs:
 
       - name: Validate API base URL
         env:
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          # Repository or Environment *Variables* preferred; *Secrets* also work if you used the wrong tab by mistake.
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL }}
         run: |
           if [ -z "$VITE_API_BASE_URL" ]; then
-            echo "VITE_API_BASE_URL is missing. Add it under Settings → Environments → github-pages → Variables, or as a Repository variable."
+            echo "VITE_API_BASE_URL is missing."
+            echo "Add it as: Settings → Secrets and variables → Actions → Variables (Repository variables), name VITE_API_BASE_URL"
+            echo "OR under Environments → github-pages → Variables (same name)."
+            echo "If you used Secrets instead, name must be exactly VITE_API_BASE_URL (this workflow reads vars OR secrets)."
             exit 1
           fi
 
       - name: Build
         env:
           VITE_BASE_PATH: ${{ github.event.repository.name }}
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL }}
         run: npm run build
 
       - name: Setup Pages
