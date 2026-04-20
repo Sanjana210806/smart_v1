@@ -57,10 +57,7 @@ export function Login() {
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
           <CardDescription>
-            Usernames are <strong>case-insensitive</strong> (e.g. <code className="text-xs">sp</code>,{" "}
-            <code className="text-xs">SP</code>). Passwords are <strong>case-sensitive</strong>. Seeded:{" "}
-            <strong>admin</strong> / <strong>Admin#123</strong>, <strong>driver</strong> / <strong>Driver#123</strong>,{" "}
-            <strong>sp</strong> / <strong>Sp#123</strong>.
+            Usernames are <strong>case-insensitive</strong>. Passwords are <strong>case-sensitive</strong>.
           </CardDescription>
         </CardHeader>
         <CardContent>
